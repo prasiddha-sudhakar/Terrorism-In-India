@@ -1,0 +1,361 @@
+---
+title: 'Final Project: Terrorism in India'
+output:
+  html_document:
+    df_print: paged
+---
+
+# Introduction
+Terrorism is the biggest security threat to the world today: India, being a regional superpower in the Indo Pacific, has witnessed brutal terrorist attacks since its independence. Analyzing the data will help understand intricacies of attacks: where did they take place, what type of attack was it, which groups were responsible and more. By analyzing prior terrorist attacks, the information can be used to predict and prevent future attacks from taking place, better securing the region. At the same time, when finding patterns, security forces can be better equipped to deal with terrorist threats and take measures to prevent mass casualties. Understanding the main source of terrorism (Maoist, Islamist etc) and related patterns can also be user in counter-terrorism and counter-insurgency efforts. 
+
+The data set is from the Global Terrorism Database, filtering out the terrorist attacks in India between 1970 - 2015. This was found on [Data World](https://data.world/anmolp/terrorist-attacks-in-india)
+
+[Video, in Drive under Video1.mp4](https://drive.google.com/drive/folders/155Gj9q9Vw96Ob7xhZqMYOPMuXhgvLFus)
+
+The video only answers part 1, a full video is also on the drive under zoom_0 (if curious)
+
+# Cleaning the Data
+
+```{r}
+library(tidyverse)
+library(plotly)
+library(leaflet)
+library(gganimate)
+library(gapminder)
+
+df <- read_csv('indiadata.csv')
+dim(df)
+head(df)
+```
+
+Next, we remove the columns that we do not need, like the X1 ID and the Country, since the data that's going to be analyzed is India. 
+
+```{r}
+# Cleaning up the data set 
+
+df <- select(df, -c(X1, country_txt))
+```
+
+## Problem with Dataset
+
+This dataset only provides the city, without the Indian state for which the attack corresponds to. Another dataset, with the Indian states and cities was used to join with this current dataset to be able to better map out data based on states. 
+
+Another aspect to consider is that my machine does not allow me to animate using ```gganimate```, hinder my abilities to create more interesting data visualizations. Hence, only ggplot and leaflet have been used. 
+
+```{r}
+indloc <- read_csv('indianstates.csv')
+indloc <- select(indloc, -c(Latitude, Longitude))
+
+df <- full_join(x=df, y=indloc, by='city')
+
+df %>%
+  relocate(State, .after = city) # Placing the state after city for visibility purposes
+```
+
+The variables that will be used to analyze are the year, city, state, latitude, longitude (both of which is useful for mapping data), attack type, target type and subtype, the more specific target, weapon type,  weapon subtype, perpetrator group name, motive and a summary of the exact details.  
+
+# Question 1
+
+> What are the average number of terrorist attacks per year? Are these spikes/troughs? What are the trends in this data? Does political changes have anything to do with attacks?
+
+---
+
+In order to investigate this question, we explored various multidimensional factors. We examined terrorist attacks based on State, City and trends over time. 
+
+
+```{r}
+
+# Mapping out data in a map, via leaflet
+
+leaflet(df) %>% addTiles() %>% addMarkers(
+  clusterOptions = markerClusterOptions()
+)
+```
+
+## Number of terrorist attacks between 1970 - 2015 based on state
+
+```{r}
+# Number of terrorist attacks between 1970-2015 per State 
+
+df %>%
+  group_by(State) %>%
+  filter(!is.na(State)) %>% # Ignoring NA values
+  count(State, sort=TRUE) %>%
+  head(5) %>%
+  ggplot(aes(reorder(State, n), n)) +
+  geom_bar(stat="identity", fill="steelblue") + 
+  xlab("Indian States") + 
+  ylab("Number of terrorist attacks")                 +
+  ggtitle("Top 5 states with terrorist attacks ")
+```
+
+We see that the top 5 states with the most terrorist attacks are Jammu and Kashmir, Assam, Uttar Pradesh, Bihar and Orissa. 
+
+This makes sense, as there has been an ongoing conflict between India, Pakistan and China in the state of Jammu and Kashmir since 1947. Majority of the terrorist attacks in the Jammu and Kashmir have happened during the 1990s, when armed insurgency groups like Lashkar-e-Taiba (founded in 1987), Hizbul Mujahideen (founded in 1988) and Jaish-e-Mohammed (officially founded in 2000, with activity from 1990 onwards)
+
+```{r}
+# Examining the terrorist attacks in Jammu & Kashmir 
+
+df %>%
+  filter(State == "Jammu and Kashmir") %>%
+  count(State, iyear) %>%
+  ggplot(aes(x = iyear, y=n)) +
+     geom_point() +
+     geom_line() + 
+  xlab("Year") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Terrorist attacks in Kashmir over time")
+```
+
+There is a huge spike in terrorist attacks from the 1990s up until 2008, due to the formation of these groups. The attacks subsided in 2008, after the 26/11 bombings (whereby terrorist group Lashkar e Taiba was responsible) which impacted the India-Pakistan diplomatic relations. The Indian government began a stricter crackdown on terrorist groups operating in Jammu and Kashmir, leading to a decline in attacks post 2008 with fluctuations during periods of unrest.
+
+## Number of terrorist attacks based on perpetrator
+
+When examining the groups responsible for the attacks, we see that: 
+
+```{r}
+# Finding the groups responsible for the terrorist attacks in these states, excluding unknown perpetrators 
+
+df %>%
+  group_by(State) %>%
+  filter(!is.na(State)) %>% # Ignoring NA values
+  filter(gname != "Unknown") %>%
+  count(State, gname, sort=TRUE) %>%
+  head(5) %>%
+  ggplot(mapping = aes(reorder(State, n), n, fill=gname)) +
+  geom_bar(stat="identity") + 
+  xlab("Indian States") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Top 5 states with terrorist attacks and groups responsible") + 
+  labs(fill = "Group Responsible") + 
+  theme(axis.text.x=element_text(angle=90,margin = margin(0.5, unit = "cm"),vjust =1))
+```
+
+This goes to show that the Communist Party of India - Maoist (CPI - Maoist) is mostly responsible for the terrorist attacks throughout Bihar, Orissa and Chhattisgarh. This aspect will be explored more in Question 3. 
+
+It's also important to note that this data only takes into consider states that are known, and only examines the known terrorist groups. 
+
+## Number of terrorist attacks between 1970 - 2015 based on city
+
+```{r}
+# Bar chart of cities with the greatest total number of terrorist attacks between 1970-2015
+
+df %>%
+    filter(city != "Unknown") %>%
+    count(city, sort=TRUE) %>%
+    head(5) %>%
+    ggplot(aes(reorder(city, n), n)) +
+  geom_bar(stat="identity", fill="brown4") + 
+  xlab("Indian Cities") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Top 5 cities with terrorist attacks")
+```
+
+Once again, Srinagar in the state of Jammu and Kashmir ranks second due to reasons aformentioned. As for Imphal, in the state of Manipur, has been ridden with separatist insurgency groups. 
+
+```{r}
+# Examining the terrorist attacks in Manipur, based on known groups
+
+df %>%
+  filter(State == "Manipur") %>%
+  count(gname, iyear) %>%
+  ggplot(aes(x = iyear, y=n, color=gname)) +
+     geom_point() +
+     geom_line() + 
+  xlab("Year") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Terrorist attacks in Manipur over time") + 
+  labs(color="Groups")
+```
+
+There is a huge spike in 2015, where 18 Indian soldiers had been killed by separatist groups suspected to be members of the Nagaland Socialist Council. This resulted in the successful 2015 counter insurgency surgical strikes in Myanmar. 
+
+## What are the motives for terrorist attacks?
+
+```{r}
+# Finding the motives for the terrorist attacks in these states, excluding unknown motives 
+
+df %>%
+  group_by(State) %>%
+  filter(!is.na(State)) %>% # Ignoring NA values
+  filter(targtype1_txt != "Unknown") %>%
+  count(State, targtype1_txt, sort=TRUE) %>%
+  head(9) %>%
+  ggplot(mapping = aes(reorder(State, n), n, fill=targtype1_txt)) +
+  geom_bar(stat="identity") + 
+  xlab("Indian States") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Top 5 states with terrorist attacks and targets") + 
+  labs(fill = "Target Values")
+```
+
+This goes to show that most terrorist attacks do not seem to be politically motivated and solely focused on private citizens and property. This is different in the state of Chhattisgarh, where most attacks are on the police. This is largely due to the influx of the Naxalite movement and Maoism, explored in Question 3. 
+
+### Conclusion
+
+When we examine the year of elections in relation to the number of terrorist attacks committed that year, we find that there are no significant spikes during political changes and rather, only to do with overall goals of the insurgency movement. 
+
+# Question 2
+
+> What is the correlation between terrorist activity and presence of law enforcement/security forces? Does having a higher number of personnel on the ground decrease terrorist attacks?
+
+```{r}
+targetGov <- c("Military", "Police")
+
+df %>%
+  filter(targtype1_txt %in% targetGov) %>%
+  count(State, targtype1_txt, iyear, sort=TRUE) %>%
+  
+  ggplot(df, mapping = aes(x=iyear, y=n, color=targtype1_txt)) + 
+  geom_point()+
+  geom_smooth(method=lm, se=FALSE) + 
+  xlab("Year") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Attacks on Military and Police over time") + 
+  labs(color = "Target Types")
+```
+
+This is an interesting trend, where attacks on the military seem to be decreasing while the attacks on the police is increasing. To go further into why that may be the case, we examine the states where these attacks are happening the most. 
+
+```{r}
+df %>%
+  filter(targtype1_txt %in% targetGov) %>%
+  filter(!is.na(State)) %>%
+  count(State, targtype1_txt, sort=TRUE)  %>%
+  head(6) %>%
+  ggplot(mapping = aes(reorder(State, n), n, fill=targtype1_txt)) +
+  geom_bar(stat="identity") + 
+  xlab("Indian States") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("States where police and military are attacked the most") + 
+  labs(fill = "Target Values")
+```
+
+
+# Question 3
+
+> How does economic development factor into internal security threats? Does an increase in the Human Development Index in tribal areas with separatist activity decrease it?
+
+---
+
+First, let's examine the trends in the data for attacks happening in 3 states with significant internal security threats and tribal regions. These states would be Bihar, Orissa, Bihar and Jharkhand. 
+
+## Trends in terrorist attacks in Chhattisgarh, Jharkhand, Bihar and Orissa over time
+
+```{r}
+# Map out terrorist attacks in these states between 1970 - 2015
+
+states <- c("Chhattisgarh", "Jharkhand", "Bihar", "Orissa" )
+
+df %>%
+  filter(State %in% states) %>%
+  count(State, iyear) %>%
+   ggplot(aes(x = iyear, y=n, color = State)) +
+     geom_point() +
+     geom_line() +   
+  xlab("Year") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Terrorist attacks in a set of states over time") 
+```
+
+From this, there is a very clear pattern: majority of the violence sparked from 2006 to 2013. 
+
+## Visualizing attacks in these regions
+
+```{r}
+# Visualizing terrorist attacks in aformentioned states 
+
+df %>%
+  filter(State %in% states) %>%
+  leaflet() %>%
+  addTiles() %>%
+  addMarkers(clusterOptions = markerClusterOptions())
+```
+
+When clustering the data, it shows that the majority of terrorist attacks takes place in Bihar and Jharkand, followed by Chhattisgarh and then Odissa. 
+
+## Groups responsible for terrorist attacks
+
+```{r}
+# Examining the groups responsible for the terrorist attacks in given states 
+
+df %>%
+  filter(State %in% states) %>%
+  filter(gname != "Unknown") %>%
+  count(State, gname, sort=TRUE) %>%
+  ggplot(mapping = aes(reorder(State, n), n, fill=gname)) +
+  geom_bar(stat="identity") + 
+  xlab("Indian States") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("States with terrorist attacks and groups responsible") + 
+  labs(fill = "Group Responsible")
+```
+
+This goes to show that the vast majority of terrorist attacks have been carried out Maoists, whether it's through the Communist Party of India, Naxalites (who support Maoism) or Maoist Communist Center. 
+
+This can also be mapped out onto a map, visualizing where each group attacked. 
+
+```{r}
+# Mapping out groups responsible for the attacks in given states
+
+pal <- colorFactor(c("blue", "orange", "yellow"), domain = c("Naxalites", "Communist Party of India - Maoist (CPI-Maoist)", "Maoists"))
+
+df %>%
+  filter(State %in% states) %>%
+  leaflet() %>% addTiles() %>%
+  addCircleMarkers(
+    radius = ~ifelse(gname == "Communist Party of India - Maoist (CPI-Maoist)", 6, 10),
+    color = ~pal(gname),
+    stroke = FALSE, fillOpacity = 0.5
+  )
+```
+
+## Does economic development impact internal security threats?
+
+There is a spike in the Maoist violence between 2006 to 2013. The initial movement began West Bengal in 1967 (as we see in Bihar, where small levels of violence began) which was inspired by Chinese leader Mao Zedong, and wanted a revolution similar to the one in China. The entire premise was inspired by political ideology, as opposed to current economic factors. 
+
+Although it was not possible to find a dataset based on the states we were examing to compare with, trends from overall GDP can be used to examine on a rough scale.
+
+```{r}
+gapminder %>%
+  filter(country == "India") %>%
+  filter(year > 1970) %>%
+   ggplot(aes(x = year, y=gdpPercap)) +
+     geom_point() +
+     geom_line() +   
+  xlab("Year") + 
+  ylab("GDP per capita") +
+  ggtitle("India's GDP over time") 
+facet_grid(~ type)
+```
+As we see, India's GDP has been increasing over time, but this does not impact the internal security threats. 
+
+
+Many studies, in relation to this data, have found that there is no correlation between economic development and Maoist violence in the region. Instead, data studies support an increase in police forces that have quenched the violence. 
+
+For instance, this graph shows that majority of attacks committed over time were on the police, making this insurgency against the Indian state as opposed to being correlated with economic factors (based on the current dataset)
+
+```{r}
+# Visualizing attack types 
+
+responsibleGroups <- c("Naxalites", "Communist Party of India - Maoist (CPI-Maoist)", "Maoists", "Maoist Communist Center (MCC)")
+
+df %>%
+  filter(State %in% states) %>%
+  filter(gname %in% responsibleGroups) %>%
+  count(targsubtype1_txt, iyear, sort=TRUE) %>%
+  head(20) %>%
+   ggplot(aes(x = iyear, y=n, color = targsubtype1_txt)) +
+     geom_point() +
+     geom_line() +   
+  xlab("Year") + 
+  ylab("Number of terrorist attacks") +
+  ggtitle("Reasons for terrorist attacks") + 
+  labs(color="Motivation")
+```
+
+Prior strategies have been employed by the government to counter Maoist violence through Operation Green Hunt, deployed in 2009. IN 2004, many Naxalite and Maoist groups joined together. 
+
+## Conclusion
+
+Although economic development has improved in India, there is no evidence to suggest that the internal security threats are dependent upon economic development and everything to do with ideology. 
